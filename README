@@ -1,0 +1,12 @@
+DEPENDENCIES:
+xcb, glib
+
+
+---------------------------------------------------------
+INSTALL:
+
+
+type "make"
+as root type "make install"
+
+execute "fittstool"
