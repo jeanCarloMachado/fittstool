@@ -1,6 +1,5 @@
 #summary Quick usage information for fittstool
 
-= fittstool usage =
 fittstool uses a config file which is usually located at `~/.config/fittstool/fittstoolrc`
 
 Upon first launch it will create a sample file which demonstrates how to bind the upper left screen corner for volume control with the mouse wheel.
