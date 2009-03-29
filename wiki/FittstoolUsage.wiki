@@ -1,0 +1,27 @@
+#summary Quick usage information for fittstool
+
+= fittstool usage =
+fittstool uses a config file which is usually located at `~/.config/fittstool/fittstoolrc`
+
+Upon first launch it will create a sample file which demonstrates how to bind the upper left screen corner for volume control with the mouse wheel.
+
+That's why I advice you to start it in a terminal and check if it gives you the message that it has created the file for you, then stop it with Ctrl-C.
+
+Here's how the example config file looks:
+{{{
+#fittstoolrc example
+#volume control in the top right corner:
+TopRight.WheelUp     = amixer -q sset Master 2+
+TopRight.WheelDown   = amixer -q sset Master 2-
+TopRight.RightButton = amixer -q sset Master toggle
+TopRight.LeftButton  = xterm -C alsamixer
+#Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...
+#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown
+}}}
+
+I think it's simple enough for you to get it. For example you want to bind the lower right corner to launch the htop process manager for you. All you have to do is add this at the bottom of your fittstoolrc:
+{{{
+BottomRight.LeftButton = xterm -C htop
+}}}
+
+You can add fittstool to your session, if you're using a session manager, or to your .xinitrc, or whichever way you autostart your applications with the start of the X server.
