@@ -19,6 +19,8 @@
 
 
 /* CONSTANTS/OPTIONS */
+
+/* Screen Corners */
 #define TopLeft      0
 #define TopCenter    1
 #define TopRight     2
@@ -28,6 +30,15 @@
 #define BottomLeft   6
 #define Left         7
 
+/* Mouse button indexes for commands */
+#define MouseLeft          0
+#define MouseMiddle        1
+#define MouseRight         2
+#define MouseWheelUp       3
+#define MouseWheelDown     4
+#define MouseWheelUpOnce   5
+#define MouseWheelDownOnce 6
+
 /* INCLUDES */
 
 #include <xcb/xcb.h>
@@ -35,7 +46,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>		/* getenv(), etc. */
+#include <stdlib.h>   /* getenv(), etc. */
 
 /* STRUCTS */
 struct str_window_options {
@@ -44,24 +55,38 @@ struct str_window_options {
   int y;
   int h;
   int w;
-  char lb_command[100];
-  char mb_command[100];
-  char rb_command[100];
-  char wu_command[100];
-  char wd_command[100];
+  char commands[7][100];
 };
 
 /*GLOBALS*/
 
 int done = 0; /* for event loop */
 
-xcb_connection_t *connection;	/* pointer to XCB connection*/
-xcb_screen_t *screen;	/* number of screen to place the window on.  */
+xcb_connection_t *connection; /* pointer to XCB connection*/
+xcb_screen_t *screen; /* number of screen to place the window on.  */
 int scr_w;
 int scr_h;
-xcb_window_t windows[8];	/* pointer to the newly created window.      */
+time_t last_time_of_execution_up[8]; /* last time a wheel event on a corner has been made */
+time_t last_time_of_execution_down[8]; /* last time a wheel event on a corner has been made */
+xcb_window_t windows[8];  /* pointer to the newly created window.      */
 struct str_window_options window_options[8];
 
+/* function prototypes */
+int  can_execute (const int corner, time_t last_exec_array[]);
+int  defined (const char str[]);
+void config_add_entry (char* key, char* value);
+int  config_parse_line (const char* line);
+int  config_read ();
+int  config_read_file (const char *file_path);
+void fill_file(const char *file_path);
+void init_options ();
+void server_create_windows();
+int  server_find_window(xcb_window_t win);
+void server_event_loop ();
+int  str_eq (const char* s1, const char* s2);
+
+
+/* implementations */
 void
 server_create_windows()
 {
@@ -108,24 +133,28 @@ server_event_loop ()
       /* printf("this event is coming from window %d \n", cur_win); */
       switch (bp->detail) {
       case 1: /*left button */
-        if (strlen(window_options[cur_win].lb_command)>0) 
-          system(window_options[cur_win].lb_command);
+        if (defined(window_options[cur_win].commands[MouseLeft])) 
+          system(window_options[cur_win].commands[MouseLeft]);
         break;
       case 2: /* middle button */
-        if (strlen(window_options[cur_win].mb_command)>0) 
-          system(window_options[cur_win].mb_command);
+        if (defined(window_options[cur_win].commands[MouseMiddle])) 
+          system(window_options[cur_win].commands[MouseMiddle]);
         break;
       case 3: /* right button */
-        if (strlen(window_options[cur_win].rb_command)>0) 
-          system(window_options[cur_win].rb_command);
+        if (defined(window_options[cur_win].commands[MouseRight])) 
+          system(window_options[cur_win].commands[MouseRight]);
         break;
       case 4: /*mouse wheel up*/
-        if (strlen(window_options[cur_win].wu_command)>0) 
-          system(window_options[cur_win].wu_command);
+        if (defined(window_options[cur_win].commands[MouseWheelUp])) 
+          system(window_options[cur_win].commands[MouseWheelUp]);
+        if ( defined(window_options[cur_win].commands[MouseWheelUpOnce]) && can_execute(cur_win, last_time_of_execution_up) )
+          system(window_options[cur_win].commands[MouseWheelUpOnce]);
         break;
       case 5: /*mouse wheel down*/
-        if (strlen(window_options[cur_win].wd_command)>0) 
-          system(window_options[cur_win].wd_command);
+        if (defined(window_options[cur_win].commands[MouseWheelDown])) 
+          system(window_options[cur_win].commands[MouseWheelDown]);
+        if (defined(window_options[cur_win].commands[MouseWheelDownOnce]) && can_execute(cur_win, last_time_of_execution_down) )
+          system(window_options[cur_win].commands[MouseWheelDownOnce]);
         break;
       }
     }
@@ -134,12 +163,37 @@ server_event_loop ()
   }
 }
 
+int  defined (const char str[])
+{
+  if (strlen(str) > 0) return 1;
+  return 0;
+}
+
+int
+can_execute (const int corner, time_t last_exec_array[])
+{
+  time_t current_time;
+  long int diff;
+  
+  time(&current_time);
+  diff = (long int) current_time - (long int) last_exec_array[corner];
+  
+  if ( !last_exec_array[corner] || ( diff > 2 ) ) {
+    last_exec_array[corner] = current_time;
+    return 1;
+  }
+  
+  return 0; 
+}
+
 void
 init_options ()
 {
   int i;
   for (i=0; i<8; i++) {
     window_options[i].enabled = 0;
+    last_time_of_execution_up[i] = (time_t) 0;
+    last_time_of_execution_down[i] = (time_t) 0;
   }
   window_options[TopLeft].w = 5;
   window_options[TopLeft].h = 5;
@@ -176,218 +230,78 @@ init_options ()
   window_options[Left].y = (scr_h - window_options[Left].h)/2;
 }
 
+int
+str_eq (const char* s1, const char* s2)
+{
+  if (g_strcmp0(s1, s2) == 0) return 1;
+  return 0;
+}
+
 void
 config_add_entry (char* key, char* value)
 {
-  /* top left */
-  if (strcmp (key, "TopLeft.LeftButton") == 0) {
-    window_options[TopLeft].enabled=1;
-    strcpy(window_options[TopLeft].lb_command, value);
-  } else 
-  if (strcmp (key, "TopLeft.MiddleButton") == 0) {
-    window_options[TopLeft].enabled=1;
-    strcpy(window_options[TopLeft].mb_command, value);
-  } else 
-  if (strcmp (key, "TopLeft.RightButton") == 0) {
-    window_options[TopLeft].enabled=1;
-    strcpy(window_options[TopLeft].rb_command, value);
-  } else 
-  if (strcmp (key, "TopLeft.WheelUp") == 0) {
-    window_options[TopLeft].enabled=1;
-    strcpy(window_options[TopLeft].wu_command, value);
-  } else 
-  if (strcmp (key, "TopLeft.WheelDown") == 0) {
-    window_options[TopLeft].enabled=1;
-    strcpy(window_options[TopLeft].wd_command, value);
-  } else 
-  /* top center */
-  if (strcmp (key, "TopCenter.LeftButton") == 0) {
-    window_options[TopCenter].enabled=1;
-    strcpy(window_options[TopCenter].lb_command, value);
-  } else 
-  if (strcmp (key, "TopCenter.MiddleButton") == 0) {
-    window_options[TopCenter].enabled=1;
-    strcpy(window_options[TopCenter].mb_command, value);
-  } else 
-  if (strcmp (key, "TopCenter.RightButton") == 0) {
-    window_options[TopCenter].enabled=1;
-    strcpy(window_options[TopCenter].rb_command, value);
-  } else 
-  if (strcmp (key, "TopCenter.WheelUp") == 0) {
-    window_options[TopCenter].enabled=1;
-    strcpy(window_options[TopCenter].wu_command, value);
-  } else 
-  if (strcmp (key, "TopCenter.WheelDown") == 0) {
-    window_options[TopCenter].enabled=1;
-    strcpy(window_options[TopCenter].wd_command, value);
-  } else 
-  /* top right */
-  if (strcmp (key, "TopRight.LeftButton") == 0) {
-    window_options[TopRight].enabled=1;
-    strcpy(window_options[TopRight].lb_command, value);
-  } else 
-  if (strcmp (key, "TopRight.MiddleButton") == 0) {
-    window_options[TopRight].enabled=1;
-    strcpy(window_options[TopRight].mb_command, value);
-  } else 
-  if (strcmp (key, "TopRight.RightButton") == 0) {
-    window_options[TopRight].enabled=1;
-    strcpy(window_options[TopRight].rb_command, value);
-  } else 
-  if (strcmp (key, "TopRight.WheelUp") == 0) {
-    window_options[TopRight].enabled=1;
-    strcpy(window_options[TopRight].wu_command, value);
-  } else 
-  if (strcmp (key, "TopRight.WheelDown") == 0) {
-    window_options[TopRight].enabled=1;
-    strcpy(window_options[TopRight].wd_command, value);
-  } else 
-  /* right */
-  if (strcmp (key, "Right.LeftButton") == 0) {
-    window_options[Right].enabled=1;
-    strcpy(window_options[Right].lb_command, value);
-  } else 
-  if (strcmp (key, "Right.MiddleButton") == 0) {
-    window_options[Right].enabled=1;
-    strcpy(window_options[Right].mb_command, value);
-  } else 
-  if (strcmp (key, "Right.RightButton") == 0) {
-    window_options[Right].enabled=1;
-    strcpy(window_options[Right].rb_command, value);
-  } else 
-  if (strcmp (key, "Right.WheelUp") == 0) {
-    window_options[Right].enabled=1;
-    strcpy(window_options[Right].wu_command, value);
-  } else 
-  if (strcmp (key, "Right.WheelDown") == 0) {
-    window_options[Right].enabled=1;
-    strcpy(window_options[Right].wd_command, value);
-  } else 
-  /* bottom right */
-  if (strcmp (key, "BottomRight.LeftButton") == 0) {
-    window_options[BottomRight].enabled=1;
-    strcpy(window_options[BottomRight].lb_command, value);
-  } else 
-  if (strcmp (key, "BottomRight.MiddleButton") == 0) {
-    window_options[BottomRight].enabled=1;
-    strcpy(window_options[BottomRight].mb_command, value);
-  } else 
-  if (strcmp (key, "BottomRight.RightButton") == 0) {
-    window_options[BottomRight].enabled=1;
-    strcpy(window_options[BottomRight].rb_command, value);
-  } else 
-  if (strcmp (key, "BottomRight.WheelUp") == 0) {
-    window_options[BottomRight].enabled=1;
-    strcpy(window_options[BottomRight].wu_command, value);
-  } else 
-  if (strcmp (key, "BottomRight.WheelDown") == 0) {
-    window_options[BottomRight].enabled=1;
-    strcpy(window_options[BottomRight].wd_command, value);
-  } else 
-  /* bottom center */
-  if (strcmp (key, "BottomCenter.LeftButton") == 0) {
-    window_options[BottomCenter].enabled=1;
-    strcpy(window_options[BottomCenter].lb_command, value);
-  } else 
-  if (strcmp (key, "BottomCenter.MiddleButton") == 0) {
-    window_options[BottomCenter].enabled=1;
-    strcpy(window_options[BottomCenter].mb_command, value);
-  } else 
-  if (strcmp (key, "BottomCenter.RightButton") == 0) {
-    window_options[BottomCenter].enabled=1;
-    strcpy(window_options[BottomCenter].rb_command, value);
-  } else 
-  if (strcmp (key, "BottomCenter.WheelUp") == 0) {
-    window_options[BottomCenter].enabled=1;
-    strcpy(window_options[BottomCenter].wu_command, value);
-  } else 
-  if (strcmp (key, "BottomCenter.WheelDown") == 0) {
-    window_options[BottomCenter].enabled=1;
-    strcpy(window_options[BottomCenter].wd_command, value);
-  } else 
-  /* bottom left */
-  if (strcmp (key, "BottomLeft.LeftButton") == 0) {
-    window_options[BottomLeft].enabled=1;
-    strcpy(window_options[BottomLeft].lb_command, value);
-  } else 
-  if (strcmp (key, "BottomLeft.MiddleButton") == 0) {
-    window_options[BottomLeft].enabled=1;
-    strcpy(window_options[BottomLeft].mb_command, value);
-  } else 
-  if (strcmp (key, "BottomLeft.RightButton") == 0) {
-    window_options[BottomLeft].enabled=1;
-    strcpy(window_options[BottomLeft].rb_command, value);
-  } else 
-  if (strcmp (key, "BottomLeft.WheelUp") == 0) {
-    window_options[BottomLeft].enabled=1;
-    strcpy(window_options[BottomLeft].wu_command, value);
-  } else 
-  if (strcmp (key, "BottomLeft.WheelDown") == 0) {
-    window_options[BottomLeft].enabled=1;
-    strcpy(window_options[BottomLeft].wd_command, value);
-  } else 
-  /* left */
-  if (strcmp (key, "Left.LeftButton") == 0) {
-    window_options[Left].enabled=1;
-    strcpy(window_options[Left].lb_command, value);
-  } else 
-  if (strcmp (key, "Left.MiddleButton") == 0) {
-    window_options[Left].enabled=1;
-    strcpy(window_options[Left].mb_command, value);
-  } else 
-  if (strcmp (key, "Left.RightButton") == 0) {
-    window_options[Left].enabled=1;
-    strcpy(window_options[Left].rb_command, value);
-  } else 
-  if (strcmp (key, "Left.WheelUp") == 0) {
-    window_options[Left].enabled=1;
-    strcpy(window_options[Left].wu_command, value);
-  } else 
-  if (strcmp (key, "Left.WheelDown") == 0) {
-    window_options[Left].enabled=1;
-    strcpy(window_options[Left].wd_command, value);
+  gchar** corner_and_button;
+  int corner = -1;
+  int button = -1;
+  
+  corner_and_button = g_strsplit(key, ".", 2); /* 0 is corner, 1 is button */
+  
+  if (str_eq(corner_and_button[0], "TopLeft"     )) corner = TopLeft     ; else
+  if (str_eq(corner_and_button[0], "TopCenter"   )) corner = TopCenter   ; else
+  if (str_eq(corner_and_button[0], "TopRight"    )) corner = TopRight    ; else
+  if (str_eq(corner_and_button[0], "Right"       )) corner = Right       ; else
+  if (str_eq(corner_and_button[0], "BottomRight" )) corner = BottomRight ; else
+  if (str_eq(corner_and_button[0], "BottomCenter")) corner = BottomCenter; else
+  if (str_eq(corner_and_button[0], "BottomLeft"  )) corner = BottomLeft  ; else
+  if (str_eq(corner_and_button[0], "Left"        )) corner = Left;
+  
+  if (str_eq(corner_and_button[1], "LeftButton"    )) button = MouseLeft         ; else
+  if (str_eq(corner_and_button[1], "MiddleButton"  )) button = MouseMiddle       ; else
+  if (str_eq(corner_and_button[1], "RightButton"   )) button = MouseRight        ; else
+  if (str_eq(corner_and_button[1], "WheelUp"       )) button = MouseWheelUp      ; else
+  if (str_eq(corner_and_button[1], "WheelDown"     )) button = MouseWheelDown    ; else
+  if (str_eq(corner_and_button[1], "WheelUpOnce"   )) button = MouseWheelUpOnce  ; else
+  if (str_eq(corner_and_button[1], "WheelDownOnce" )) button = MouseWheelDownOnce;
+  
+  if (corner == -1 || button == -1) {
+    printf("Error parsing key '%s' in the config", key);
   }
+  
+  window_options[corner].enabled = 1;
+  strcpy(window_options[corner].commands[button], value);
+  
+  g_strfreev(corner_and_button);
 }
 
 int
 config_parse_line (const char* line) 
 {
-  char *a, *b, *key, *value, *tmp_value;
-  char have_fo_free_value;
-
+  char *key, *value, *tmp_value;
+  
   /* Skip useless lines */
-  if ((line[0] == '#') || (line[0] == '\n')) return 0;
-  if (!(a = strchr (line, '='))) return 0;
-
-  /* overwrite '=' with '\0' */
-  a[0] = '\0';
-  key = strdup (line);
-  a++;
-
-  /* overwrite '\n' with '\0' if '\n' present */
-  if ((b = strchr (a, '\n'))) b[0] = '\0';
-
-  value = strdup (a);
-
+  if (g_str_has_prefix(line, "#") || g_str_has_prefix(line, "\n")) return 0;
+  if (!(tmp_value = strchr (line, '='))) return 0;
+  
+  gchar** key_and_value;
+  key_and_value = g_strsplit(line, "=", 2); /* 0 is corner, 1 is button */
+  
+  key   = key_and_value[0];
+  value = key_and_value[1];
+  if (!key || !value) return 0;
+  
   g_strstrip(key);
   g_strstrip(value);
-
+  
   /* if the command has no & at the end - we add it :) */
-  have_fo_free_value = 1;
-  
   if (!g_str_has_suffix(value, "&")) {
-    tmp_value = g_strdup_printf("%s &", value);
-    g_free (value);
-    have_fo_free_value = 0;
-    value = tmp_value;
+    value = g_strdup_printf("%s &", value);
   }
-  
-  
+
+  printf( " %s %s \n", key, value);
   config_add_entry(key, value);
 
-  g_free (key);
-  if (have_fo_free_value) g_free (value);
-  if (!have_fo_free_value) g_free (tmp_value);
+  g_strfreev(key_and_value);
+  
   return 1;
 }
 
@@ -421,7 +335,7 @@ fill_file(const char *file_path)
   char* line5 = "TopRight.RightButton = amixer -q sset Master toggle\n";
   char* line6 = "TopRight.LeftButton  = xterm -C alsamixer\n";
   char* line7 = "#Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...\n";
-  char* line8 = "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown \n";
+  char* line8 = "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce \n";
   char* lines[8] = {line1, line2, line3, line4, line5, line6, line7, line8};
 
   fp = fopen(file_path, "wb");
@@ -478,7 +392,6 @@ main(int argc, char* argv[])
   scr_h = screen->height_in_pixels;
   
   init_options();
-  //config_read_file();
   config_read();
   
   /* create window */
