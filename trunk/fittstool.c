@@ -17,6 +17,11 @@
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 **************************************************************************/
 
+/* MACROS */
+
+#define str_defined(str) ( (strlen(str) > 0) ? 1 : 0 )
+#define unless(a)        if (!a)
+#define get_cmd(win,cmd) window_options[win].commands[cmd]
 
 /* CONSTANTS/OPTIONS */
 
@@ -31,13 +36,13 @@
 #define Left         7
 
 /* Mouse button indexes for commands */
-#define MouseLeft          0
-#define MouseMiddle        1
-#define MouseRight         2
-#define MouseWheelUp       3
-#define MouseWheelDown     4
-#define MouseWheelUpOnce   5
-#define MouseWheelDownOnce 6
+#define LeftButton    0
+#define MiddleButton  1
+#define RightButton   2
+#define WheelUp       3
+#define WheelDown     4
+#define WheelUpOnce   5
+#define WheelDownOnce 6
 
 /* INCLUDES */
 
@@ -56,57 +61,45 @@ struct str_window_options {
   int h;
   int w;
   char commands[7][100];
+  xcb_window_t xcb_window; /* pointer to the newly created window.      */
+  time_t last_time_up; /* last time a wheel event on a corner has been made */
+  time_t last_time_down; /* last time a wheel event on a corner has been made */
 };
 
 /*GLOBALS*/
-
-int done = 0; /* for event loop */
-
-xcb_connection_t *connection; /* pointer to XCB connection*/
-xcb_screen_t *screen; /* number of screen to place the window on.  */
-int scr_w;
-int scr_h;
-time_t last_time_of_execution_up[8]; /* last time a wheel event on a corner has been made */
-time_t last_time_of_execution_down[8]; /* last time a wheel event on a corner has been made */
-xcb_window_t windows[8];  /* pointer to the newly created window.      */
 struct str_window_options window_options[8];
 
 /* function prototypes */
-int  can_execute (const int corner, time_t last_exec_array[]);
-int  defined (const char str[]);
-void config_add_entry (char* key, char* value);
-int  config_parse_line (const char* line);
-int  config_read ();
-int  config_read_file (const char *file_path);
+int  can_execute (const int corner, const int direction);
+void config_read ();
+void config_read_file (const char *file_path);
 void fill_file(const char *file_path);
-void init_options ();
-void server_create_windows();
+void init_options (const int screen_width, const int screen_height);
+void server_create_windows(xcb_connection_t *connection, xcb_screen_t *screen);
 int  server_find_window(xcb_window_t win);
-void server_event_loop ();
-int  str_eq (const char* s1, const char* s2);
-
+void server_event_loop (xcb_connection_t *connection);
 
 /* implementations */
 void
-server_create_windows()
+server_create_windows(xcb_connection_t *connection, xcb_screen_t *screen)
 {
   int i;
   uint32_t values[2] = {1, XCB_EVENT_MASK_BUTTON_PRESS};;
  
   for (i=0; i<8; i++) {
-    if (!window_options[i].enabled) continue;
-    windows[i] = xcb_generate_id (connection);
+    unless (window_options[i].enabled) continue;
+    window_options[i].xcb_window = xcb_generate_id (connection);
         
     /* InputOnly window to get the focus when no other window can get it */
     printf("Created a window - x:%d y:%d width:%d height:%d \n"
       ,window_options[i].x,window_options[i].y,window_options[i].h,window_options[i].w);
-    xcb_create_window (connection, 0, windows[i], screen->root, window_options[i].x,
+    xcb_create_window (connection, 0, window_options[i].xcb_window, screen->root, window_options[i].x,
           window_options[i].y, window_options[i].w, window_options[i].h, 0,
           XCB_WINDOW_CLASS_INPUT_ONLY, screen->root_visual,
           XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values );      
 
     /* Map the window on the screen */
-    xcb_map_window (connection, windows[i]);
+    xcb_map_window (connection, window_options[i].xcb_window);
 
     xcb_flush (connection);
   }
@@ -116,13 +109,14 @@ int
 server_find_window(xcb_window_t win)
 {
   int i;
-  for (i=0; i<8 ;i++) if (windows[i]==win) return i;
+  for (i=0; i<8 ;i++) if (window_options[i].xcb_window==win) return i;
   return -1;
 }
 
 void
-server_event_loop ()
+server_event_loop (xcb_connection_t *connection)
 {
+  char done = 0;
   int cur_win;
   xcb_generic_event_t *event;
   
@@ -133,28 +127,28 @@ server_event_loop ()
       /* printf("this event is coming from window %d \n", cur_win); */
       switch (bp->detail) {
       case 1: /*left button */
-        if (defined(window_options[cur_win].commands[MouseLeft])) 
-          system(window_options[cur_win].commands[MouseLeft]);
+        if (str_defined(get_cmd(cur_win,LeftButton))) 
+          system(get_cmd(cur_win,LeftButton));
         break;
       case 2: /* middle button */
-        if (defined(window_options[cur_win].commands[MouseMiddle])) 
-          system(window_options[cur_win].commands[MouseMiddle]);
+        if (str_defined(get_cmd(cur_win,MiddleButton))) 
+          system(get_cmd(cur_win,MiddleButton));
         break;
       case 3: /* right button */
-        if (defined(window_options[cur_win].commands[MouseRight])) 
-          system(window_options[cur_win].commands[MouseRight]);
+        if (str_defined(get_cmd(cur_win,RightButton))) 
+          system(get_cmd(cur_win,RightButton));
         break;
       case 4: /*mouse wheel up*/
-        if (defined(window_options[cur_win].commands[MouseWheelUp])) 
-          system(window_options[cur_win].commands[MouseWheelUp]);
-        if ( defined(window_options[cur_win].commands[MouseWheelUpOnce]) && can_execute(cur_win, last_time_of_execution_up) )
-          system(window_options[cur_win].commands[MouseWheelUpOnce]);
+        if (str_defined(get_cmd(cur_win,WheelUp))) 
+          system(get_cmd(cur_win,WheelUp));
+        if ( str_defined(get_cmd(cur_win,WheelUpOnce)) && can_execute(cur_win, 0) )
+          system(get_cmd(cur_win,WheelUpOnce));
         break;
       case 5: /*mouse wheel down*/
-        if (defined(window_options[cur_win].commands[MouseWheelDown])) 
-          system(window_options[cur_win].commands[MouseWheelDown]);
-        if (defined(window_options[cur_win].commands[MouseWheelDownOnce]) && can_execute(cur_win, last_time_of_execution_down) )
-          system(window_options[cur_win].commands[MouseWheelDownOnce]);
+        if (str_defined(get_cmd(cur_win,WheelDown))) 
+          system(get_cmd(cur_win,WheelDown));
+        if (str_defined(get_cmd(cur_win,WheelDownOnce)) && can_execute(cur_win, 1) )
+          system(get_cmd(cur_win,WheelDownOnce));
         break;
       }
     }
@@ -163,23 +157,21 @@ server_event_loop ()
   }
 }
 
-int  defined (const char str[])
-{
-  if (strlen(str) > 0) return 1;
-  return 0;
-}
-
 int
-can_execute (const int corner, time_t last_exec_array[])
+can_execute (const int corner, int direction)
 {
   time_t current_time;
+  time_t* last_exec;
   long int diff;
   
-  time(&current_time);
-  diff = (long int) current_time - (long int) last_exec_array[corner];
+  unless (direction) last_exec = &window_options[corner].last_time_up; 
+  else last_exec = &window_options[corner].last_time_down;
   
-  if ( !last_exec_array[corner] || ( diff > 2 ) ) {
-    last_exec_array[corner] = current_time;
+  time(&current_time);
+  diff = (long int) current_time - (long int) *last_exec;
+  
+  if ( !last_exec || ( diff > 2 ) ) {
+    *last_exec = current_time;
     return 1;
   }
   
@@ -187,139 +179,74 @@ can_execute (const int corner, time_t last_exec_array[])
 }
 
 void
-init_options ()
+init_options (const int screen_width, const int screen_height)
 {
   int i;
   for (i=0; i<8; i++) {
     window_options[i].enabled = 0;
-    last_time_of_execution_up[i] = (time_t) 0;
-    last_time_of_execution_down[i] = (time_t) 0;
+    window_options[i].last_time_down = (time_t) 0;
+    window_options[i].last_time_up = (time_t) 0;
   }
   window_options[TopLeft].w = 5;
   window_options[TopLeft].h = 5;
-  window_options[TopCenter].w = scr_w*0.6;
+  window_options[TopCenter].w = screen_width*0.6;
   window_options[TopCenter].h = 2;
   window_options[TopRight].w = 6;
   window_options[TopRight].h = 5;
   window_options[Right].w = 3;
-  window_options[Right].h = scr_h*0.6;
+  window_options[Right].h = screen_height*0.6;
   window_options[BottomRight].w = 6;
   window_options[BottomRight].h = 6;
-  window_options[BottomCenter].w = scr_w*0.6;
+  window_options[BottomCenter].w = screen_width*0.6;
   window_options[BottomCenter].h = 2;
   window_options[BottomLeft].w = 5;
   window_options[BottomLeft].h = 5;
   window_options[Left].w = 2;
-  window_options[Left].h = scr_h*0.6;
+  window_options[Left].h = screen_height*0.6;
   
   window_options[TopLeft].x = 0;
   window_options[TopLeft].y = 0;
-  window_options[TopCenter].x = (scr_w - window_options[TopCenter].w)/2;
+  window_options[TopCenter].x = (screen_width - window_options[TopCenter].w)/2;
   window_options[TopCenter].y = 0;
-  window_options[TopRight].x = scr_w-5;
+  window_options[TopRight].x = screen_width-5;
   window_options[TopRight].y = 0;
-  window_options[Right].x = scr_w-2;
-  window_options[Right].y = (scr_h - window_options[Right].h)/2;
-  window_options[BottomRight].x = scr_w-5;
-  window_options[BottomRight].y = scr_h-5;
-  window_options[BottomCenter].x = (scr_w - window_options[BottomCenter].w)/2;
-  window_options[BottomCenter].y = scr_h-2;
+  window_options[Right].x = screen_width-2;
+  window_options[Right].y = (screen_height - window_options[Right].h)/2;
+  window_options[BottomRight].x = screen_width-5;
+  window_options[BottomRight].y = screen_height-5;
+  window_options[BottomCenter].x = (screen_width - window_options[BottomCenter].w)/2;
+  window_options[BottomCenter].y = screen_height-2;
   window_options[BottomLeft].x = 0;
-  window_options[BottomLeft].y = scr_h-5;
+  window_options[BottomLeft].y = screen_height-5;
   window_options[Left].x = 0;
-  window_options[Left].y = (scr_h - window_options[Left].h)/2;
+  window_options[Left].y = (screen_height - window_options[Left].h)/2;
 }
 
-int
-str_eq (const char* s1, const char* s2)
-{
-  if (g_strcmp0(s1, s2) == 0) return 1;
-  return 0;
-}
-
-void
-config_add_entry (char* key, char* value)
-{
-  gchar** corner_and_button;
-  int corner = -1;
-  int button = -1;
-  
-  corner_and_button = g_strsplit(key, ".", 2); /* 0 is corner, 1 is button */
-  
-  if (str_eq(corner_and_button[0], "TopLeft"     )) corner = TopLeft     ; else
-  if (str_eq(corner_and_button[0], "TopCenter"   )) corner = TopCenter   ; else
-  if (str_eq(corner_and_button[0], "TopRight"    )) corner = TopRight    ; else
-  if (str_eq(corner_and_button[0], "Right"       )) corner = Right       ; else
-  if (str_eq(corner_and_button[0], "BottomRight" )) corner = BottomRight ; else
-  if (str_eq(corner_and_button[0], "BottomCenter")) corner = BottomCenter; else
-  if (str_eq(corner_and_button[0], "BottomLeft"  )) corner = BottomLeft  ; else
-  if (str_eq(corner_and_button[0], "Left"        )) corner = Left;
-  
-  if (str_eq(corner_and_button[1], "LeftButton"    )) button = MouseLeft         ; else
-  if (str_eq(corner_and_button[1], "MiddleButton"  )) button = MouseMiddle       ; else
-  if (str_eq(corner_and_button[1], "RightButton"   )) button = MouseRight        ; else
-  if (str_eq(corner_and_button[1], "WheelUp"       )) button = MouseWheelUp      ; else
-  if (str_eq(corner_and_button[1], "WheelDown"     )) button = MouseWheelDown    ; else
-  if (str_eq(corner_and_button[1], "WheelUpOnce"   )) button = MouseWheelUpOnce  ; else
-  if (str_eq(corner_and_button[1], "WheelDownOnce" )) button = MouseWheelDownOnce;
-  
-  if (corner == -1 || button == -1) {
-    printf("Error parsing key '%s' in the config", key);
-  }
-  
-  window_options[corner].enabled = 1;
-  strcpy(window_options[corner].commands[button], value);
-  
-  g_strfreev(corner_and_button);
-}
-
-int
-config_parse_line (const char* line) 
-{
-  char *key, *value, *tmp_value;
-  
-  /* Skip useless lines */
-  if (g_str_has_prefix(line, "#") || g_str_has_prefix(line, "\n")) return 0;
-  if (!(tmp_value = strchr (line, '='))) return 0;
-  
-  gchar** key_and_value;
-  key_and_value = g_strsplit(line, "=", 2); /* 0 is corner, 1 is button */
-  
-  key   = key_and_value[0];
-  value = key_and_value[1];
-  if (!key || !value) return 0;
-  
-  g_strstrip(key);
-  g_strstrip(value);
-  
-  /* if the command has no & at the end - we add it :) */
-  if (!g_str_has_suffix(value, "&")) {
-    value = g_strdup_printf("%s &", value);
-  }
-
-  printf( " %s %s \n", key, value);
-  config_add_entry(key, value);
-
-  g_strfreev(key_and_value);
-  
-  return 1;
-}
-
-int 
+void 
 config_read_file (const char *file_path)
 {
-  FILE *fp;
-  char line[150];
+  GKeyFile* config_file;
+  gchar* groups[] = {"TopLeft", "TopCenter", "TopRight", "Right", "BottomRight", "BottomCenter", "BottomLeft", "Left"};
+  gchar* events[] = {"LeftButton", "MiddleButton", "RightButton", "WheelUp", "WheelDown", "WheelUpOnce", "WheelDownOnce"};
+  gchar* current_value;
+  int i,j;
 
-  if ((fp = fopen(file_path, "r")) == NULL) return 0;
+  config_file = g_key_file_new();
   
-  printf("Reading & parsing config file... \n");
-  while (fgets(line, sizeof(line), fp) != NULL)
-    config_parse_line (line);
+  unless (g_key_file_load_from_file(config_file, file_path, G_KEY_FILE_NONE, NULL)) return;
   
-  printf("Done reading config file. \n");
-  fclose (fp);
-  return 1;
+  for (i=0; i<8; i++)
+    if ( g_key_file_has_group(config_file, groups[i]) ) {
+      window_options[i].enabled = 1;
+      for (j=0; j<7; j++)
+        if ( (current_value = g_key_file_get_value(config_file, groups[i], events[j], NULL)) ) {
+          unless (g_str_has_suffix(current_value, "&"))
+            current_value = g_strdup_printf("%s &", current_value);
+            
+          strcpy(window_options[i].commands[j], current_value);
+          printf("%s %s : %s \n", groups[i], events[j], current_value);
+        }
+    }
 }
 
 void 
@@ -328,77 +255,70 @@ fill_file(const char *file_path)
   FILE *fp;
   int  i;
    
-  char* line1 = "#fittstoolrc example\n";
-  char* line2 = "#volume control in the top right corner:\n";
-  char* line3 = "TopRight.WheelUp     = amixer -q sset Master 2+\n";
-  char* line4 = "TopRight.WheelDown   = amixer -q sset Master 2-\n";
-  char* line5 = "TopRight.RightButton = amixer -q sset Master toggle\n";
-  char* line6 = "TopRight.LeftButton  = xterm -C alsamixer\n";
-  char* line7 = "#Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...\n";
-  char* line8 = "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce \n";
-  char* lines[8] = {line1, line2, line3, line4, line5, line6, line7, line8};
+  char* lines[] = {
+    "#fittstoolrc example\n",
+    "#volume control in the top right corner:\n\n",
+    "[TopRight]\n",
+    "WheelUp=amixer -q sset Master 2+\n",
+    "WheelDown=amixer -q sset Master 2-\n",
+    "RightButton=amixer -q sset Master toggle\n",
+    "LeftButton=xterm -C alsamixer\n\n\n",
+    "#Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...\n",
+    "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce \n"
+  };
 
   fp = fopen(file_path, "wb");
   if (fp == NULL) return;
 
-  for (i=0; i<8; i++) {
-    fputs(lines[i], fp);
-  }
+  for (i=0; i<9; i++) fputs(lines[i], fp);
 
   fclose (fp);
 }
 
-int 
+void 
 config_read ()
 {
-  char *path1;
-  gint i;
-
+  char *path;
+  
   /* check fittstoolrc in user directory */
-  path1 = g_build_filename (g_get_user_config_dir(), "fittstool", "fittstoolrc", NULL);
-  if (g_file_test (path1, G_FILE_TEST_EXISTS)) {
-              i = config_read_file (path1);
-              g_free(path1);
-         return i;
+  path = g_build_filename (g_get_user_config_dir(), "fittstool", "fittstoolrc", NULL);
+  if (g_file_test (path, G_FILE_TEST_EXISTS)) {
+    config_read_file(path);
+    g_free(path);
+    return;
   }
 
   char *dir = g_build_filename (g_get_user_config_dir(), "fittstool", NULL);
   if (!g_file_test (dir, G_FILE_TEST_IS_DIR)) g_mkdir(dir, 0777);
   g_free(dir);
-  
 
+  path = g_build_filename (g_get_user_config_dir(), "fittstool", "fittstoolrc", NULL);
+  fill_file(path);
+  printf("Created a sample fittstoolrc for you in %s \n", path);
 
-  path1 = g_build_filename (g_get_user_config_dir(), "fittstool", "fittstoolrc", NULL);
-  fill_file(path1);
-  printf("Created a sample fittstoolrc for you in %s \n", path1);
-
-
-  i = config_read_file (path1);
-  g_free(path1);
-  return i;
-  
-  return 0;
+  config_read_file (path);
+  g_free(path);
 }
 
 int
 main(int argc, char* argv[])
 {
+  xcb_connection_t *connection; /* pointer to XCB connection*/
+  xcb_screen_t *screen; /* number of screen to place the window on.  */
    /* open connection to X server. */
   connection = xcb_connect (NULL, NULL);
   
   /* get screen*/
   screen = xcb_setup_roots_iterator (xcb_get_setup (connection)).data;
-  scr_w = screen->width_in_pixels;
-  scr_h = screen->height_in_pixels;
-  
-  init_options();
+
+  init_options(screen->width_in_pixels, screen->height_in_pixels);
   config_read();
   
   /* create window */
-  server_create_windows();
+  server_create_windows(connection, screen);
   
   /*event loop */
-  server_event_loop();
+  server_event_loop(connection);
   
   /*close connection to server */
   xcb_disconnect(connection);
