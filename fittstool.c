@@ -17,32 +17,6 @@
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 **************************************************************************/
 
-/* MACROS */
-
-#define str_defined(str) ( (strlen(str) > 0) ? 1 : 0 )
-#define unless(a)        if (!a)
-#define get_cmd(win,cmd) window_options[win].commands[cmd]
-
-/* CONSTANTS/OPTIONS */
-
-/* Screen Corners */
-#define TopLeft      0
-#define TopCenter    1
-#define TopRight     2
-#define Right        3
-#define BottomRight  4
-#define BottomCenter 5
-#define BottomLeft   6
-#define Left         7
-
-/* Mouse button indexes for commands */
-#define LeftButton    0
-#define MiddleButton  1
-#define RightButton   2
-#define WheelUp       3
-#define WheelDown     4
-#define WheelUpOnce   5
-#define WheelDownOnce 6
 
 /* INCLUDES */
 
@@ -53,6 +27,30 @@
 #include <string.h>
 #include <stdlib.h>   /* getenv(), etc. */
 
+
+/* MACROS */
+
+#define str_defined(str) ( (strlen(str) > 0) ? 1 : 0 )
+#define unless(a)        if ( ! (a) )
+#define get_cmd(win,cmd) window_options[win].commands[cmd]
+
+/* CONSTANTS/OPTIONS */
+
+/* Screen Corners */
+enum eScreenCorners {
+  TopLeft, TopCenter, TopRight, Right, BottomRight, BottomCenter, BottomLeft, Left
+};
+
+/* Mouse button indexes for commands */
+enum eMouseButtons {
+  LeftButton, MiddleButton, RightButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce, Enter, Leave
+};
+
+/* XCB mouse button indexes */
+enum eXCBButtonIndexes {
+  LEFT_BUTTON=1, MIDDLE_BUTTON, RIGHT_BUTTON, WHEEL_UP_BUTTON, WHEEL_DOWN_BUTTON
+};
+
 /* STRUCTS */
 struct str_window_options {
   char enabled;
@@ -60,7 +58,7 @@ struct str_window_options {
   int y;
   int h;
   int w;
-  char commands[7][100];
+  char commands[9][100];
   xcb_window_t xcb_window; /* pointer to the newly created window.      */
   time_t last_time_up; /* last time a wheel event on a corner has been made */
   time_t last_time_down; /* last time a wheel event on a corner has been made */
@@ -84,7 +82,8 @@ void
 server_create_windows(xcb_connection_t *connection, xcb_screen_t *screen)
 {
   int i;
-  uint32_t values[2] = {1, XCB_EVENT_MASK_BUTTON_PRESS};;
+  uint32_t values[] = {1, XCB_EVENT_MASK_BUTTON_PRESS | 
+    XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW};
  
   for (i=0; i<8; i++) {
     unless (window_options[i].enabled) continue;
@@ -119,39 +118,65 @@ server_event_loop (xcb_connection_t *connection)
   char done = 0;
   int cur_win;
   xcb_generic_event_t *event;
+  xcb_button_press_event_t *bp;
+  xcb_enter_notify_event_t *enter;
+  xcb_leave_notify_event_t *leave;
   
   while ((event = xcb_wait_for_event (connection))) {
-    if ((event->response_type & ~0x80)==XCB_BUTTON_PRESS) {
-      xcb_button_press_event_t *bp = (xcb_button_press_event_t *)event;
-      cur_win = server_find_window(bp->event);
-      /* printf("this event is coming from window %d \n", cur_win); */
-      switch (bp->detail) {
-      case 1: /*left button */
-        if (str_defined(get_cmd(cur_win,LeftButton))) 
-          system(get_cmd(cur_win,LeftButton));
-        break;
-      case 2: /* middle button */
-        if (str_defined(get_cmd(cur_win,MiddleButton))) 
-          system(get_cmd(cur_win,MiddleButton));
-        break;
-      case 3: /* right button */
-        if (str_defined(get_cmd(cur_win,RightButton))) 
-          system(get_cmd(cur_win,RightButton));
-        break;
-      case 4: /*mouse wheel up*/
-        if (str_defined(get_cmd(cur_win,WheelUp))) 
-          system(get_cmd(cur_win,WheelUp));
-        if ( str_defined(get_cmd(cur_win,WheelUpOnce)) && can_execute(cur_win, 0) )
-          system(get_cmd(cur_win,WheelUpOnce));
-        break;
-      case 5: /*mouse wheel down*/
-        if (str_defined(get_cmd(cur_win,WheelDown))) 
-          system(get_cmd(cur_win,WheelDown));
-        if (str_defined(get_cmd(cur_win,WheelDownOnce)) && can_execute(cur_win, 1) )
-          system(get_cmd(cur_win,WheelDownOnce));
-        break;
-      }
+    switch (event->response_type & ~0x80) {
+      case XCB_BUTTON_PRESS:
+        bp = (xcb_button_press_event_t *)event;
+        cur_win = server_find_window(bp->event);
+        /* printf("this event is coming from window %d \n", cur_win); */
+        switch (bp->detail) {
+          case LEFT_BUTTON:
+            if (str_defined(get_cmd(cur_win,LeftButton))) 
+              system(get_cmd(cur_win,LeftButton));
+          break;
+          
+          case MIDDLE_BUTTON:
+            if (str_defined(get_cmd(cur_win,MiddleButton))) 
+              system(get_cmd(cur_win,MiddleButton));
+            break;
+          case RIGHT_BUTTON:
+            if (str_defined(get_cmd(cur_win,RightButton))) 
+              system(get_cmd(cur_win,RightButton));
+          break;
+          
+          case WHEEL_UP_BUTTON:
+            if (str_defined(get_cmd(cur_win,WheelUp))) 
+              system(get_cmd(cur_win,WheelUp));
+            if ( str_defined(get_cmd(cur_win,WheelUpOnce)) && can_execute(cur_win, 0) )
+              system(get_cmd(cur_win,WheelUpOnce));
+          break;
+          
+          case WHEEL_DOWN_BUTTON:
+            if (str_defined(get_cmd(cur_win,WheelDown))) 
+              system(get_cmd(cur_win,WheelDown));
+            if (str_defined(get_cmd(cur_win,WheelDownOnce)) && can_execute(cur_win, 1) )
+              system(get_cmd(cur_win,WheelDownOnce));
+          break;
+        }
+      break;
+      
+      case XCB_ENTER_NOTIFY:
+        enter = (xcb_enter_notify_event_t *)event;
+        cur_win = server_find_window(enter->event);
+        if (str_defined(get_cmd(cur_win,Enter))) 
+          system(get_cmd(cur_win,Enter));
+      break;
+      
+      case XCB_LEAVE_NOTIFY:
+        leave = (xcb_leave_notify_event_t *)event;
+        cur_win = server_find_window(leave->event);
+        if (str_defined(get_cmd(cur_win,Leave))) 
+          system(get_cmd(cur_win,Leave));
+      break;
+      
+      default:
+      break;
     }
+    
     free (event);
     if (done) break;
   }
@@ -165,7 +190,7 @@ can_execute (const int corner, int direction)
   long int diff;
   
   unless (direction) last_exec = &window_options[corner].last_time_up; 
-  else last_exec = &window_options[corner].last_time_down;
+    else last_exec = &window_options[corner].last_time_down;
   
   time(&current_time);
   diff = (long int) current_time - (long int) *last_exec;
@@ -227,7 +252,7 @@ config_read_file (const char *file_path)
 {
   GKeyFile* config_file;
   gchar* groups[] = {"TopLeft", "TopCenter", "TopRight", "Right", "BottomRight", "BottomCenter", "BottomLeft", "Left"};
-  gchar* events[] = {"LeftButton", "MiddleButton", "RightButton", "WheelUp", "WheelDown", "WheelUpOnce", "WheelDownOnce"};
+  gchar* events[] = {"LeftButton", "MiddleButton", "RightButton", "WheelUp", "WheelDown", "WheelUpOnce", "WheelDownOnce", "Enter", "Leave"};
   gchar* current_value;
   int i,j;
 
@@ -238,7 +263,7 @@ config_read_file (const char *file_path)
   for (i=0; i<8; i++)
     if ( g_key_file_has_group(config_file, groups[i]) ) {
       window_options[i].enabled = 1;
-      for (j=0; j<7; j++)
+      for (j=0; j<9; j++)
         if ( (current_value = g_key_file_get_value(config_file, groups[i], events[j], NULL)) ) {
           unless (g_str_has_suffix(current_value, "&"))
             current_value = g_strdup_printf("%s &", current_value);
@@ -264,7 +289,7 @@ fill_file(const char *file_path)
     "RightButton=amixer -q sset Master toggle\n",
     "LeftButton=xterm -C alsamixer\n\n\n",
     "#Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...\n",
-    "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce \n"
+    "#Available events: LeftButton, RightButton, MiddleButton, WheelUp, WheelDown, WheelUpOnce, WheelDownOnce, Enter, Leave \n"
   };
 
   fp = fopen(file_path, "wb");
