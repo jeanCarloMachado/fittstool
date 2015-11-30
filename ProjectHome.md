@@ -1,0 +1,1 @@
+According to Fitt's Law ( http://en.wikipedia.org/wiki/Fitts'
