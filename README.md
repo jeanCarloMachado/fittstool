@@ -8,8 +8,9 @@ xcb, glib
 type "make"
 as root type "make install"
 
+```
 execute "fittstool"
-
+```
 
 #Usage
 
@@ -22,11 +23,15 @@ That's why I advise you to start it in a terminal and check if it gives you the 
 
 Configuration is done via a keyfile. You have groups in the format of:
 
+```
 [GroupName]
+```
 
 which correspond to screen corners, and event bindings in the form of:
 
+```
 LeftButton=somecommand
+```
 
 which correspond to events on that screen corner and point to the command/script to be executed upon the event being fired.
 
@@ -35,11 +40,13 @@ Here's how the example config file looks:
 #fittstoolrc example
 #volume control in the top right corner:
 
+```
 [TopRight]
 WheelUp=amixer -q sset Master 2+
 WheelDown=amixer -q sset Master 2-
 RightButton=amixer -q sset Master toggle
 LeftButton=xterm -C alsamixer
+```
 
 
 #Available positions: Left, TopLeft, etc, TopCenter, BottomCenter, Right, TopRight, BottomRight, etc...
@@ -47,7 +54,9 @@ LeftButton=xterm -C alsamixer
 
 I think it's simple enough for you to get it. For example you want to bind the lower right corner to launch the htop process manager for you. All you have to do is add this at the bottom of your fittstoolrc:
 
+```
 [BottomRight]
 LeftButton=xterm -C htop
+```
 
 You can add fittstool to your session, if you're using a session manager, or to your .xinitrc, or whichever way you autostart your applications with the start of the X server.
