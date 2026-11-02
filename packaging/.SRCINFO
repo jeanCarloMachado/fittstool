@@ -10,6 +10,6 @@ pkgbase = fittsmon
 	depends = libxcb
 	depends = wayland
 	source = fittsmon-1.3.0.tar.gz::https://github.com/musqz/fittsmon/archive/refs/tags/v1.3.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 5dae385022e04fd560ec8722477a959e12ce600d906136ae2fa847f4bb9e0362
 
 pkgname = fittsmon
